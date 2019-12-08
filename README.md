@@ -3,10 +3,10 @@
 
 This is the working repository for the processing and analysis of the HCA Heart data in collaboration with:
 
-1. **Teichmann Lab** - Wellcome Sanger Institute Cambridge, United Kingdom.
-2. **Hubner Lab** - MDC Berlin, Germany.
-3. **Noseda Lab** - Imperial College London London, United Kingdom.
-4. **Seidman Labs** - Harvard Medical School, Boston, MA, United States. 
+1. **Teichmann Lab** - Wellcome Sanger Institute - Cambridge, United Kingdom.
+2. **Hubner Lab** - MDC - Berlin, Germany.
+3. **Noseda Lab** - Imperial College London - London, United Kingdom.
+4. **Seidman Labs** - Harvard Medical School - Boston, MA, United States. 
 
 The repository is (for now) private and will host constributions from developers at Sanger as well as the collaborators in London, Berlin and Boston. 
 
