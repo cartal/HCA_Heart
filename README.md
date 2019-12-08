@@ -27,7 +27,7 @@ For more details please contact Carlos Talavera-López (ct5@sanger.ac.uk) or Mon
 
 There are two main folders where the notebook for the analyses can be found:
 
-1. CellBender-based: Which includes the scripts to run cellbender, as well as the notebooks for downsteam analyses.
-2. CellRanger-based: Which comes uses the `filtered_feature_bc_matrix` as main input. No background removal step is performed here.
+1. **CellBender-based**: Which includes the scripts to run cellbender, as well as the notebooks for downsteam analyses.
+2. **CellRanger-based**: Which comes uses the `filtered_feature_bc_matrix` as main input. No background removal step is performed here.
 
 
