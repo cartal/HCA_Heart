@@ -14,7 +14,6 @@ To have a working copy of the repository, just clone it on your working machine 
 
 ```
 git clone --recursive https://github.com/cartal/Sanger_HCA_Heart.git
-
 ```
 
 In order to keep visible the contributions from each collaborator, any change, correction or bug fix should be submitted as 
