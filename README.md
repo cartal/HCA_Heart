@@ -20,7 +20,8 @@ git clone --recursive https://github.com/cartal/Sanger_HCA_Heart.git
 In order to keep visible the contributions from each collaborator, any change, correction or bug fix should be submitted as 
 a [pull request](https://help.github.com/en/github/collaborating-with-issues-and-pull-requests/about-pull-requests) by creating a new branch from the master repo.
 
-**Please keep in mind that much of the code here is novel and can't be shared or used outside this consortium without the explicit authorisation from their respective developers**
+**Please keep in mind that the code here can't be shared or used outside this consortium without the explicit authorisation from their respective developers.** For more details 
+or authorisations please contact Carlos Talavera-López (ct5@sanger.ac.uk) or Monika Litviňuková (monika.litvinukova@mdc-berlin.de). 
 
 
 
