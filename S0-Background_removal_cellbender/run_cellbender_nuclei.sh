@@ -8,16 +8,18 @@ OUTPUT_DIR=/mnt/data/hca_heart/cellbender/harvard/premrna/
 REPORTS=/mnt/data/hca_heart/cellranger/harvard/premrna/reports/
 
 ### RUN CELLBENDER
-# For this to work, you will need a file with at least three columns:
-#sampleID,expected_cells,included_cells
+
+# After talking to the developers, their recommendation was to use the number of targeted cells, as 10X recommends 
+# and a value within the background plateau that makes sense for the whole expriment (donor). 
+# In the case of cells, their recommendation was EXPECTED = 5000, INCLUDED = 13000. 
 
 
-for i in $(echo $(cat samples.txt) | cut -f1 -d-)
+for i in $(cat samples.txt)
 
 do
 
-    EXPECTED=$(echo $(cat samples.txt) | cut -f2 -d-)
-    INCLUDED=$(echo $(cat samples.txt) | cut -f3 -d-)
+    EXPECTED=
+    INCLUDED=
 
     ln -s $INPUT_DIR/$i/outs/$i.h5
     
