@@ -13,7 +13,7 @@ The repository is (for now) private and will host constributions from developers
 To have a working copy of the repository, just clone it on your working machine as follow:
 
 ```
-git clone --recursive https://github.com/cartal/Sanger_HCA_Heart.git
+git clone --recursive https://github.com/cartal/HCA_Heart.git
 ```
 
 In order to keep visible the contributions from each collaborator, any change, correction or bug fix should be submitted as 
