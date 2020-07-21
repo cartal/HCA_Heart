@@ -8,7 +8,7 @@ This is the working repository for the processing and analysis of the HCA Heart 
 3. **Noseda Lab** - Imperial College London - London, United Kingdom.
 4. **Seidman Labs** - Harvard Medical School - Boston, MA, United States. 
 
-The repository is (for now) private and will host constributions from developers at Sanger as well as the collaborators in London, Berlin and Boston. 
+The repository will host constributions from developers at Sanger as well as the collaborators in London, Berlin and Boston. 
 
 To have a working copy of the repository, just clone it on your working machine as follow:
 
