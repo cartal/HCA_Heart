@@ -16,10 +16,6 @@ To have a working copy of the repository, just clone it on your working machine 
 git clone --recursive https://github.com/cartal/HCA_Heart.git
 ```
 
-In order to keep visible the contributions from each collaborator, any change, correction or bug fix should be submitted as 
-a [pull request](https://help.github.com/en/github/collaborating-with-issues-and-pull-requests/about-pull-requests) by creating a new branch from the master repo.
-
-
 ## Repo structure
 
 There are three main folders where files for the analysis have been stored:
