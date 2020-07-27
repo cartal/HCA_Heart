@@ -19,7 +19,6 @@ git clone --recursive https://github.com/cartal/HCA_Heart.git
 In order to keep visible the contributions from each collaborator, any change, correction or bug fix should be submitted as 
 a [pull request](https://help.github.com/en/github/collaborating-with-issues-and-pull-requests/about-pull-requests) by creating a new branch from the master repo.
 
-For more details please contact Carlos Talavera-López (ct5@sanger.ac.uk) or Monika Litviňuková (monika.litvinukova@mdc-berlin.de). 
 
 ## Repo structure
 
