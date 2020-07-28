@@ -1,0 +1,491 @@
+---
+title: "Cell type specific GWAS signals"
+author: "Matthias Heinig"
+date: "07/21/2020"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.width=8, fig.height=7)
+knitr::opts_knit$set(root.dir=normalizePath(".."))
+knitr::opts_knit$set(tidy=TRUE)
+## knitr::opts_chunk$set(dev='pdf')
+library(ggplot2)
+library(ggpubr)
+theme_set(theme_bw())
+```
+
+
+## Implementation of the MAGMA gene set approach
+
+```{r}
+## define a wrapper function to call magma
+magma.run <- function(...) { #function
+    args <- list(...)
+    cmd <- "./packages/magma/magma"
+    for (arg in names(args)) {
+      val <- args[[arg]]
+      if (!is.null(val)) {
+        cmd = paste0(cmd, " --", arg, " ", val)
+      }
+    }
+    cat(cmd, "\n")
+    system(cmd)
+}
+
+## define a wrapper for preprocessing
+preprocess.for.magma <- function(input.file, prefix, gene.loc.file, p.column, snp.column, chr.column, pos.column, sample.size) {
+  ## files are very big, so we will do the parsing and reformating with awk and sed
+  outdir <- dirname(prefix)
+  dir.create(outdir, recursive=TRUE, showWarnings = FALSE)
+  
+  cat.cmd <- "cat"
+  sed.cmd <- "gsed" ## needed on mac os
+  if (length(grep(".gz$", input.file)) > 0) {
+    cat.cmd <- "gzcat" ## gzcat needed on mac os will fix later
+  }
+  
+  system("pwd")
+  
+  ## Rename the header column to P and SNP (from p and snptestid)
+  cmd <- paste0(cat.cmd, " ", input.file, " | head -n 1 ")
+  if (snp.column != "SNP") { 
+    cmd <- paste0(cmd, " | ", 
+                  sed.cmd, " 's/\\bSNP\\b/__old__SNP/g' | ", ## rename old SNP column (if exists)
+                  sed.cmd, " 's/\\b", snp.column, "\\b/SNP/g' ") ## rename new SNP column 
+  }
+  if (p.column != "P") {
+    cmd <- paste0(cmd, " |",
+                  sed.cmd, " 's/\\bP\\s+/__old__P/g' | ", ## rename old Pvalue column (if exists)
+                  sed.cmd, " 's/\\b", p.column, "\\b/P/g'") ## rename P val col
+  }
+  cmd <- paste0(cmd, " > ", prefix, "_P.txt")
+  cat(cmd, "\n")
+  system(cmd)
+  cmd <- paste0(cat.cmd, " ", input.file, "| tail -n +2 >> ", prefix, "_P.txt")
+  cat(cmd, "\n")
+  system(cmd)
+  
+  ## Annotate the SNPs of our GWAS to genes. SNP locations are formated:
+  ## rsid, chrom, bp
+  ## find the indices of the rsid, chrom and bp
+  cn <- colnames(read.csv(paste0(prefix, "_P.txt"), sep="\t", nrow=2))
+  col.idx <- match(c("SNP", chr.column, pos.column), cn)
+  if (any(is.na(col.idx))) {
+    cat("colname(s)", c("SNP", chr.column, pos.column)[is.na(col.idx)], "not found in", cn, "\n")
+    stop
+  }
+  col.idx <- paste0("$", col.idx)
+  cmd <- paste0("tail -n +2 ", prefix, "_P.txt | awk 'BEGIN{OFS=\"\t\"}{print ", 
+                paste(col.idx, collapse=", "), "}' > ", prefix, "_snppos.txt")
+  cat(cmd, "\n")
+  system(cmd)
+  
+  ## annotate SNPs to genes
+  magma.run(annotate="", `snp-loc`=paste0(prefix, "_snppos.txt"), `gene-loc`=gene.loc.file, out=prefix)
+  
+  ## run the gene level analysis
+  if (is.na(as.numeric(sample.size))) {
+    sample.size <- paste0("ncol=", sample.size)
+  } else {
+    sample.size <- paste0("N=", sample.size)
+  }
+  pval.arg <- paste0(prefix, "_P.txt ", sample.size)
+  magma.run(bfile="data/current/references/magma/g1000_eur",  pval=pval.arg,  `gene-annot`=paste0(prefix, ".genes.annot"), out=prefix)
+}
+```
+
+
+We might need a different maping table that also includes aliases
+```{r}
+library(Homo.sapiens)
+symbol2entrez <- select(Homo.sapiens, columns=c("SYMBOL","ENTREZID"), keys=keys(Homo.sapiens, keytype="SYMBOL"), keytype="SYMBOL")
+alias2entrez <- select(Homo.sapiens, columns=c("ALIAS","ENTREZID"), keys=keys(Homo.sapiens, keytype="ALIAS"), keytype="ALIAS")
+merged <- merge(symbol2entrez, alias2entrez, by="ENTREZID")
+write.table(symbol2entrez, file="results/current/magma/symbol2entrez.txt", sep="\t", quote=F, row.names=F)
+write.table(alias2entrez, file="results/current/magma/alias2entrez.txt", sep="\t", quote=F, row.names=F)
+```
+
+
+
+
+## Search for GWAS with full summary stats
+
+We start with a list of traits from John Seidman
+```{r}
+n <- load("data/current/gwas/Associations_with_cardiac_phenotypes.rda")
+```
+
+From the gwas atlas website we dowloaded all cardiovascular traits: https://atlas.ctglab.nl/traitDB
+```{r}
+gwas_atlas <- read.csv("data/current/gwas/gwas_atlas.csv", sep=";")
+selected <- gwas_atlas[gwas_atlas$PMID %in% gwas_assoc$PUBMEDID,]
+nrow(selected)
+```
+
+In the gwas catalog we count the number of hits per study
+```{r}
+nr.hits.per.study <- with(gwas_assoc, tapply(SNPS, as.character(PUBMEDID), function(x) length(unique(x))))
+selected <- cbind(selected, nhits=nr.hits.per.study[as.character(selected$PMID)])
+```
+
+
+For each trait we select the largest study
+```{r}
+largest.by.trait <- with(selected, tapply(1:nrow(selected), tolower(as.character(uniqTrait)), function(idx) idx[which.max(N[idx])]))
+largest.gwas <- selected[largest.by.trait,]
+largest.gwas[largest.gwas$N > 5000 & largest.gwas$nhits > 10,c("uniqTrait")]
+well.powered <- largest.gwas[largest.gwas$N > 5000 & largest.gwas$nhits > 10,]
+```
+
+
+
+
+
+## Run the analysis systematically on many GWAS
+
+```{r}
+run.magma.on.gwas.list <- function(magma.params, expr.file, out.suffix, rerun=TRUE) {
+  magma.res <- NULL
+  for (i in 1:nrow(magma.params)) {
+    ## print(magma.params[i,])
+    prefix <- magma.params[i,"prefix"]
+    gsa.file <- paste0(prefix, out.suffix, ".gsa.out")
+    if (rerun || !file.exists(gsa.file)) {
+      with(magma.params[i,], {
+        gene.loc.file <- "data/current/references/magma/NCBI37.3.gene.loc"
+        if (genome.build != "hg19") {
+          cat("Only genome build hg19 currently available!!\n")
+          next  
+        }
+        gene.level.file <- paste0(prefix, ".genes.raw")
+        if (!file.exists(gene.level.file)) {
+          preprocess.for.magma(input.file, prefix, gene.loc.file, p.column, snp.column, chrom.column, pos.column, sample.size)
+        }
+        magma.run(`gene-results`=gene.level.file, `gene-covar`=expr.file, model="condition-hide=Average direction=greater", out=paste0(prefix, out.suffix))
+        })
+    }
+    enrichment <- read.table(gsa.file, stringsAsFactors=F, header=TRUE, comment="#")
+    enrichment <- data.frame(enrichment, 
+                      prefix,
+                      trait=basename(prefix),
+                      FDR=p.adjust(enrichment$P, "BH"),
+                      stringsAsFactors=FALSE)
+    magma.res <- rbind(magma.res, enrichment)
+  }
+  write.table(magma.res, file=paste0("magma_enrichment", out.suffix, ".txt"), sep="\t", quote=F)
+  return(magma.res)
+}
+```
+
+Summary of the input data
+```{r}
+magma.params <- read.csv("results/current/magma/magma_input.txt", sep="\t", stringsAsFactors=FALSE, comment.char="#")
+
+smry <- magma.params[,c("first.author", "PMID", "prefix", "sample.size")]
+smry$prefix <- basename(smry$prefix)
+smry$sample.size[smry$first.author == "Lin"] <- 83367
+smry$sample.size[smry$first.author == "Prins"] <- 77898 
+smry
+```
+
+
+
+### Run per cluster across all regions
+```{r}
+magma.res <- run.magma.on.gwas.list(magma.params, "results/current/magma/expr_crossregions_cell_states.txt", "_heart_atlas_crossregions_cellstates", rerun=T)
+magma.res$celltype <- magma.res$VARIABLE
+magma.res$FDR <- p.adjust(magma.res$P, "BH")
+magma.res.cl <- magma.res
+#magma.res <- magma.res[-grep("NIC_GWAS", magma.res$prefix),]
+```
+
+Plot the results
+```{r}
+library(scales)
+## ggplot(aes(x=celltype, y=region), data=magma.res) + geom_tile(aes(fill=-log10(P))) + facet_grid(trait~.)
+global.cl.plot <- ggplot(aes(x=celltype, y=trait), data=magma.res) + geom_tile(aes(fill=-log10(P))) + theme(axis.text.x = element_text(angle = 90)) + scale_fill_gradient(low="white", high="purple") + geom_point(aes(x=celltype, y=trait), data=magma.res[magma.res$FDR < 0.1,])
+print(global.cl.plot)
+
+pdf(file="results/current/magma/magma_enrichment_crossregions_clusters.pdf")
+print(global.cl.plot)
+dev.off()
+```
+
+```{r}
+magma.res[magma.res$FDR < 0.1,]
+```
+
+
+
+
+
+## Conditional analysis of all pairs of significantly associated cell types
+
+From the paper:
+"In the second step of the workflow, step-wise conditional analyses were performed, per dataset, from the cell type with the most significant marginal P-value. In summary, forward selection (retain the cell type with the lowest marginal P-value) was performed for a pair of cell types which were jointly explained (PSa,b < 0.2 and PSb,a < 0.2) or one association was mainly driving the other’s (PSa,b ≥ 0.5 and Pb,a ≥ 0.05, or PSa,b > 0.8 and PSb,a < 0.5). In the case of partially joint associations (PSa,b ≥ 0.5 and PSb,a ≥ 0.5) or independent (PSa,b ≥ 0.8 and PSb,a ≥ 0.8), both cell types were retained."
+
+"thresholds for proportional significance (PS) of the conditional P-value of a cell type relative to the marginal P-value $(PS_{a,b} = −log10(p_{a,b})/−log10(p_a)$, where $p_a$ is the marginal P-value for the cell type a and $p_{a,b}$ is the conditional P-value of the cell type a conditioning on the cell type b)."
+
+
+Here define a function that implements the forward selection process.
+```{r}
+forward.selection <- function(magma.res.cl, out.suffix, expr.file, rerun=FALSE, variables=NULL) {
+  forward <- NULL
+  all.retained <- list()
+  if (is.null(variables)) {
+    variables <- unique(magma.res.cl$VARIABLE)  
+  }
+  for (prefix in unique(magma.res.cl$prefix)) {
+  
+    
+    enrichment <- magma.res.cl[magma.res.cl$prefix == prefix & magma.res.cl$VARIABLE %in% variables,]
+    marginal.significant <- enrichment[enrichment$FDR < 0.1,]
+    marginal.significant <- marginal.significant[order(marginal.significant$P),]
+    
+    step <- 1
+    
+    while (TRUE) {
+      if (nrow(marginal.significant) < 1) {
+        break  
+      }
+      ## start with the most significant and condition on each of the others
+      best <- marginal.significant[1, "VARIABLE"]
+      others <- setdiff(marginal.significant[,"VARIABLE"], best)
+      
+      if (length(others) == 0) {
+        forward <- rbind(forward, data.frame(prefix, step, best, other=NA, p.best=NA, p.other=NA, PS.best.other=NA, PS.other.best=NA, category="best.unique"))
+        all.retained[[prefix]]  <- c(all.retained[[prefix]] , best)
+        break  
+      }
+      
+      for (other in others) {
+        ## best conditioned on other
+        outprefix <- paste0(prefix, out.suffix, "_conditional_", best, "_on_", other)
+        if (rerun || !file.exists(paste0(outprefix, ".gsa.out"))) {
+          magma.run(`gene-results`=paste0(prefix, ".genes.raw"), 
+                      `gene-covar`=expr.file, 
+                      model=paste0("condition-hide=Average,", other, " direction=greater"), 
+                      out=outprefix)
+        }
+        cenrichment <- read.table(paste0(outprefix, ".gsa.out"), stringsAsFactors=F, header=TRUE, comment="#")
+        p.best <- cenrichment[cenrichment$VARIABLE == best,"P"]
+        
+        ## other conditioned on best
+        outprefix <- paste0(prefix, out.suffix, "_conditional_", other, "_on_", best)
+        if (rerun || !file.exists(paste0(outprefix, ".gsa.out"))) {
+          magma.run(`gene-results`=paste0(prefix, ".genes.raw"), 
+                      `gene-covar`=expr.file, 
+                      model=paste0("condition-hide=Average,", best, " direction=greater"), 
+                      out=outprefix)
+        }
+        cenrichment <- read.table(paste0(outprefix, ".gsa.out"), stringsAsFactors=F, header=TRUE, comment="#")
+        p.other <- cenrichment[cenrichment$VARIABLE == other,"P"]
+        
+        ## define proportional significance criterion
+        PS.best.other <- -log10(p.best) / -log10(marginal.significant[marginal.significant$VARIABLE == best, "P"])
+        PS.other.best <- -log10(p.other) / -log10(marginal.significant[marginal.significant$VARIABLE == other, "P"])
+        
+        ## define the categories
+        retain <- c()
+        category <- NA
+        if (!any(is.na(c(p.best, p.other)))) {
+          ## jointly explained (PSa,b < 0.2 and PSb,a < 0.2)
+          if (PS.best.other < 0.2 && PS.other.best < 0.2) {
+            category <- "jointly.explained"
+          }
+          ## one association mainly driving the other (PSa,b ≥ 0.5 and Pb,a ≥ 0.05, or PSa,b > 0.8 and PSb,a < 0.5)
+          if ((PS.best.other > 0.4 && p.other > 0.05) || (PS.best.other > 0.8 && PS.other.best < 0.5)) {
+            category <- "best.drives.other"
+            all.retained[[prefix]] <- c(all.retained[[prefix]] , best)
+          }
+          ## partially joint associations (PSa,b ≥ 0.5 and PSb,a ≥ 0.5)
+          ## we get a lot of undecided cases, so change the thresholds here to 0.2
+          if (PS.best.other > 0.2 && PS.other.best > 0.2 && p.other < 0.05) {
+            category <- "partially.joint"
+            retain <- c(retain, other)
+            all.retained[[prefix]]  <- c(all.retained[[prefix]] , best, other)
+          }
+          ## independent (PSa,b ≥ 0.8 and PSb,a ≥ 0.8)
+          if (PS.best.other > 0.8 && PS.other.best > 0.8) {
+            category <- "independent"
+            retain <- c(retain, other)
+            all.retained[[prefix]]  <- c(all.retained[[prefix]] , best, other)
+          }
+        }
+        forward <- rbind(forward, data.frame(prefix, step, best, other, p.best, p.other, PS.best.other, PS.other.best, category))
+      }
+      step <- step + 1
+      marginal.significant <- marginal.significant[marginal.significant[,"VARIABLE"] %in% retain,]
+    }
+  }
+  ## annotate the marginal results with the retained cell types
+  retained <- sapply(1:nrow(magma.res.cl), function(i) magma.res.cl[i,"VARIABLE"] %in% all.retained[[magma.res.cl[i,"prefix"]]])
+  
+  label <- rep(NA, nrow(magma.res.cl))
+  pair <- with(magma.res.cl, paste(prefix, VARIABLE))
+  
+  independent <- with(forward[which(forward$category == "independent"),], paste(prefix, best))
+  independent <- union(independent, with(forward[which(forward$category == "independent"),], 
+                                                 paste(prefix, other)))
+  independent <- union(independent, with(forward[which(forward$category == "best.unique"),], 
+                                         paste(prefix, best)))
+  independent <- union(independent, with(forward[which(forward$category == "best.drives.other"),], 
+                                         paste(prefix, best)))
+  
+  label[pair %in% independent] = "independent"
+  
+  partial <- with(forward[which(forward$category == "partially.joint"),], paste(prefix, best))
+  partial <- union(partial, with(forward[which(forward$category == "partially.joint"),], 
+                                                 paste(prefix, other)))
+  
+  label[pair %in% partial] = "partially joint"
+  
+  joint <- with(forward[which(forward$category == "jointly.explained"),], paste(prefix, best))
+  joint <- union(joint, with(forward[which(forward$category == "jointly.explained"),], 
+                                                 paste(prefix, other)))
+  
+  label[pair %in% joint] = "jointly explained"
+  
+  ## add a second label that also contains the significant associations 
+  ## that are explained by other cell types
+  label2 <- as.character(label)
+  label2[is.na(label) & magma.res.cl$FDR < 0.1] <- "explained away"
+  
+  marginal <- data.frame(magma.res.cl, retained=retained, label=label, label2=label2)
+  return(list(marginal=marginal, forward=forward, all.retained=all.retained))
+}
+```
+
+
+
+
+### Run forward selection for the cluster based global analysis
+```{r}
+forward.cl <- forward.selection(magma.res.cl, out.suffix="_heart_atlas_crossregions_cellstates", "results/current/magma/expr_crossregions_cell_states.txt", rerun=FALSE)
+save(forward.cl, file="results/current/magma/magma_enrichment_heart_atlas_crossregions_cellstates_forward.RData")
+```
+
+Plot the results
+```{r, fig.width=8, fig.height=4}
+cl.plot <- with(forward.cl,
+  ggplot(aes(x=VARIABLE, y=trait), data=marginal) + geom_tile(aes(fill=-log10(P))) + theme(axis.text.x = element_text(angle = 90, vjust=0.5, hjust=1)) + scale_fill_gradient(low="white", high="purple") + geom_point(aes(x=VARIABLE, y=trait, col=label2), data=marginal[!is.na(marginal$label2),])) + labs(x="cell type", col="Association type") + scale_color_manual(values=c("explained away"="lightgrey", independent="green", "partially joint"="blue", "jointly explained"="darkblue"))
+
+pdf(file="results/current/magma/magma_enrichment_heart_atlas_crossregions_cellstates_forward.pdf", width=10, height=4)
+print(cl.plot)
+dev.off()
+
+print(cl.plot)
+```
+
+```{r}
+forward.cl$marginal[which(forward.cl$marginal$label2 == "independent"),]
+```
+
+
+Save the results as excel table.
+```{r}
+library(xlsx)
+xlsx::write.xlsx(forward.cl$marginal, file="results/current/magma/magma_enrichment_heart_atlas_crossregions_cellstates_forward.xlsx", "magma")
+```
+
+
+
+## Check out some of the genes that are driving the enrichments
+
+For the association of AF with SMC we suspect that smooth muscle actin might be involved.
+```{r}
+
+get.drivers <- function(prefix, expr.file, celltype) {
+  af.zscores <- read.table(paste0(prefix, ".genes.out"), header=T, stringsAsFactors=FALSE)
+  expr.cl <- read.csv(expr.file, sep="\t", stringsAsFactors=FALSE, check.names=FALSE)
+  merged <- merge(af.zscores, expr.cl)
+  
+  gene.loc <- read.table("data/current/references/magma/NCBI37.3.gene.loc", stringsAsFactors=FALSE)
+  colnames(gene.loc) <- c("GENE", "chr", "start", "end", "strand", "symbol")
+  
+  gene.loc <- cbind(gene.loc, length=with(gene.loc, end - start))
+  
+  merged <- merge(af.zscores, expr.cl)
+  merged <- merge(merged, gene.loc)
+  
+  #m <- lm(ZSTAT ~ SMC9 + Average + log(length), data=merged)
+  
+  ## remove the effects of the covariates
+  #zprime <- cbind(1, merged$SMC9) %*% coef(m)[1:2] + resid(m)
+  #merged <- cbind(merged, zprime)
+  
+  #m2 <- lm(zprime ~ SMC9, data=merged)
+  
+  #leverage <- hatvalues(m2)
+  
+  merged <- cbind(merged, leverage=NA, FDR=p.adjust(merged$P, "BH"))
+  merged <- cbind(merged, expr=merged[,celltype])
+  
+  selected <- merged[p.adjust(merged$P, "BH") < 0.05 & merged[,celltype] > 2,c("symbol", "expr", "ZSTAT", "P")]
+  
+  library(ggrepel)
+  
+  print(ggplot(data=merged) + geom_point(aes(x=expr, y=ZSTAT)) + geom_label_repel(aes(x=expr, y=ZSTAT, label=symbol), data=selected))
+  
+  #library(Homo.sapiens)
+  #symbol2entrez <- select(Homo.sapiens, columns=c("SYMBOL","ENTREZID"), keys=keys(Homo.sapiens, keytype="ENTREZID"), keytype="ENTREZID")
+  #merged <- merge(merged, symbol2entrez, by.x="GENE", by.y="ENTREZID")
+  return(merged)
+}
+```
+
+Select highly expressed genes with gene level GWAS FDR < 5%.
+```{r}
+# expr.file <- "results/current/magma/expr_crossregions_subtypes_na_rm.txt"
+expr.file <- "results/current/magma/expr_crossregions_cell_states.txt"
+selected <- get.drivers("results/current/magma/AF_GWAS", expr.file, "vcm:vCM3")
+inspect <- selected[p.adjust(selected$P, "BH") < 0.05 & selected[,"expr"] > quantile(selected[,"expr"], 0.9),c("symbol", "expr", "ZSTAT", "P")]
+inspect[order(-inspect$expr)[1:10],]
+inspect[order(inspect$P)[1:10],]
+```
+
+Select highly expressed genes with gene level GWAS FDR < 5%.
+```{r}
+selected <- get.drivers("results/current/magma/PR_GWAS", expr.file, "acm:aCM5")
+selected[p.adjust(selected$P, "BH") < 0.05 & selected[,"expr"] > 2,c("symbol", "expr", "ZSTAT", "P")]
+inspect <- selected[p.adjust(selected$P, "BH") < 0.05 & selected[,"expr"] > quantile(selected[,"expr"], 0.9),c("symbol", "expr", "ZSTAT", "P")]
+inspect[order(-inspect$expr)[1:10],]
+inspect[order(inspect$P)[1:10],]
+```
+
+```{r}
+selected <- get.drivers("results/current/magma/QRS_GWAS", expr.file, "neuro:NC1")
+selected[p.adjust(selected$P, "BH") < 0.05 & selected[,"expr"] > 0.5, c("symbol", "expr", "ZSTAT", "P")]
+inspect <- selected[p.adjust(selected$P, "BH") < 0.05 & selected[,"expr"] > quantile(selected[,"expr"], 0.9),c("symbol", "expr", "ZSTAT", "P")]
+inspect[order(-inspect$expr)[1:10],]
+inspect[order(inspect$P)[1:10],]
+```
+
+
+```{r}
+selected <- get.drivers("results/current/magma/QRS_GWAS", expr.file, "myeloid:Foam_cells")
+selected[p.adjust(selected$P, "BH") < 0.1 & selected[,"expr"] > 0.5,c("symbol", "expr", "ZSTAT", "P")]
+```
+
+```{r}
+selected <- get.drivers("results/current/magma/QRS_GWAS", expr.file, "Mural:PC5_MYC")
+selected[p.adjust(selected$P, "BH") < 0.1 & selected[,"expr"] > 0.5,c("symbol", "expr", "ZSTAT", "P")]
+```
+
+
+CAD
+```{r}
+celltypes <- forward.cl$marginal[!is.na(forward.cl$marginal$label) & forward.cl$marginal$trait == "CAD_GWAS","VARIABLE"]
+
+cad.genes <- lapply(celltypes, function(x) get.drivers("results/current/magma/CAD_GWAS", expr.file, x))
+
+genes <- lapply(cad.genes, function(selected) selected[p.adjust(selected$P, "BH") < 0.1 & selected[,"expr"] > 1,c("symbol")])
+all.genes <- unique(unlist(genes))
+indicator <- sapply(genes, function(x) all.genes %in% x)
+
+all.genes[rowSums(indicator) > 1]
+```
+
+
+
