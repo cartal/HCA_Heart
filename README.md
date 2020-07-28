@@ -21,6 +21,6 @@ git clone --recursive https://github.com/cartal/HCA_Heart.git
 There are three main folders where files for the analysis have been stored:
 
 1. **Archived**: Which includes the scripts to run cellbender, as well as the notebooks for downsteam analyses - **This was not used for the final analysis**.
-2. **Analysis**: Contain the notebokks used in the analysis of the paper.
+2. **Analysis**: Contain the notebooks used in the analysis of the paper.
 3. **Mapping**: Contains the scripts for the mapping of the reads to reference GRCh38 using `CellRanger-v3.0.2`. 
 
